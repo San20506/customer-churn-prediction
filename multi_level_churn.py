@@ -809,14 +809,38 @@ class GeographicChannelAnalyzer:
         analysis_date = df[date_col].max()
         
         # Build customer-level data with geographic info
-        customer_data = df.groupby(id_col).agg({
-            date_col: 'max',
-            state_col: 'first' if state_col else lambda x: 'Unknown',
-            retailer_col: 'first' if retailer_col else lambda x: 'Unknown',
-            distributor_col: 'first' if distributor_col else lambda x: 0,
-        }).reset_index()
+        agg_dict = {
+            date_col: 'max'
+        }
+        if state_col:
+            agg_dict[state_col] = 'first'
+        if retailer_col:
+            agg_dict[retailer_col] = 'first'
+        if distributor_col:
+            agg_dict[distributor_col] = 'first'
+            
+        customer_data = df.groupby(id_col).agg(agg_dict).reset_index()
         
-        customer_data.columns = ['customer_id', 'last_purchase', 'state', 'retailer', 'distributor']
+        # Renaissance of missing columns for structure
+        if state_col is None:
+            customer_data['state'] = 'Unknown'
+        if retailer_col is None:
+            customer_data['retailer'] = 'Unknown'
+        if distributor_col is None:
+            customer_data['distributor'] = 0
+            
+        # Rename columns carefully - matching what we have
+        new_cols = ['customer_id', 'last_purchase']
+        if state_col: new_cols.append('state')
+        if retailer_col: new_cols.append('retailer')
+        if distributor_col: new_cols.append('distributor')
+        
+        customer_data.columns = new_cols
+        
+        # Ensure standard columns exist for downstream logic
+        if 'state' not in customer_data.columns: customer_data['state'] = 'Unknown'
+        if 'retailer' not in customer_data.columns: customer_data['retailer'] = 'Unknown'
+        if 'distributor' not in customer_data.columns: customer_data['distributor'] = 0
         customer_data['recency'] = (analysis_date - customer_data['last_purchase']).dt.days
         customer_data['is_churned'] = customer_data['recency'] >= self.churn_threshold
         
@@ -938,13 +962,20 @@ class GeographicChannelAnalyzer:
         state_col = self._find_col(df, ['state'])
         distributor_col = self._find_col(df, ['distributor'])
         
-        if not all([id_col, date_col, state_col, distributor_col]):
+        if not id_col or not date_col:
             return pd.DataFrame()
         
         df = df.copy()
         df[date_col] = pd.to_datetime(df[date_col])
         analysis_date = df[date_col].max()
         
+        if not state_col:
+            df['state'] = 'Unknown'
+            state_col = 'state'
+        if not distributor_col:
+            df['distributor'] = 0
+            distributor_col = 'distributor'
+            
         customer_data = df.groupby(id_col).agg({
             date_col: 'max',
             state_col: 'first',
@@ -992,12 +1023,22 @@ class StateAdjustedChurnAnalyzer:
         analysis_date = df[date_col].max()
         
         # Build customer data
-        customer_data = df.groupby(id_col).agg({
-            date_col: ['min', 'max', 'count'],
-            state_col: 'first' if state_col else lambda x: 'Unknown'
-        }).reset_index()
+        agg_dict = {
+            date_col: ['min', 'max', 'count']
+        }
+        if state_col:
+            agg_dict[state_col] = 'first'
+            
+        customer_data = df.groupby(id_col).agg(agg_dict).reset_index()
         
-        customer_data.columns = ['customer_id', 'first_purchase', 'last_purchase', 'frequency', 'state']
+        # Handle columns
+        cols = ['customer_id', 'first_purchase', 'last_purchase', 'frequency']
+        if state_col:
+            cols.append('state')
+        customer_data.columns = cols
+        
+        if 'state' not in customer_data.columns:
+            customer_data['state'] = 'Unknown'
         customer_data['recency'] = (analysis_date - customer_data['last_purchase']).dt.days
         customer_data['lifetime'] = (customer_data['last_purchase'] - customer_data['first_purchase']).dt.days
         

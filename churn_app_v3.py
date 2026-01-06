@@ -35,19 +35,22 @@ def configure_table_style():
     """Configure ttk Treeview styles for better readability."""
     style = ttk.Style()
     
+    # Use cross-platform fonts (DejaVu Sans works on Linux, falls back to system default)
+    font_family = 'DejaVu Sans'
+    
     # Larger font for tables
     style.configure("Treeview", 
-                    font=('Segoe UI', 11),
+                    font=(font_family, 11),
                     rowheight=28)
     style.configure("Treeview.Heading", 
-                    font=('Segoe UI', 11, 'bold'))
+                    font=(font_family, 11, 'bold'))
     
     # Even larger style option
     style.configure("Large.Treeview", 
-                    font=('Segoe UI', 12),
+                    font=(font_family, 12),
                     rowheight=32)
     style.configure("Large.Treeview.Heading", 
-                    font=('Segoe UI', 12, 'bold'))
+                    font=(font_family, 12, 'bold'))
 
 
 class ChurnAppV3(ctk.CTk):
@@ -71,6 +74,14 @@ class ChurnAppV3(ctk.CTk):
         self.df = None
         self.analysis_results = None
         self.priority_list = None
+        
+        # Seasonality configuration
+        self.default_seasonality = {
+            1: 0.80, 2: 0.75, 3: 0.70, 4: 0.62, 5: 0.93, 6: 0.89,
+            7: 1.08, 8: 1.32, 9: 1.27, 10: 1.83, 11: 0.87, 12: 0.18
+        }
+        self.seasonality_vars = {}  # Will hold StringVar for each month
+        self.drift_threshold_var = None
         
         self._create_ui()
         
@@ -142,7 +153,7 @@ class ChurnAppV3(ctk.CTk):
         )
         self.analyze_btn.grid(row=5, column=0, padx=20, pady=20)
         
-        # Churn threshold
+        # Churn threshold (using dropdown instead of slider to avoid segfault)
         self.threshold_label = ctk.CTkLabel(
             self.sidebar,
             text="Churn Threshold (days):",
@@ -150,22 +161,15 @@ class ChurnAppV3(ctk.CTk):
         )
         self.threshold_label.grid(row=6, column=0, padx=20, pady=(20, 0))
         
-        self.threshold_var = ctk.IntVar(value=183)
-        self.threshold_slider = ctk.CTkSlider(
+        self.threshold_var = ctk.StringVar(value="183")
+        threshold_options = ["30", "60", "90", "120", "150", "183", "210", "240", "270", "300", "365"]
+        self.threshold_dropdown = ctk.CTkOptionMenu(
             self.sidebar,
-            from_=30,
-            to=365,
             variable=self.threshold_var,
+            values=threshold_options,
             width=200
         )
-        self.threshold_slider.grid(row=7, column=0, padx=20, pady=5)
-        
-        self.threshold_display = ctk.CTkLabel(
-            self.sidebar,
-            textvariable=self.threshold_var,
-            font=ctk.CTkFont(size=14, weight="bold")
-        )
-        self.threshold_display.grid(row=8, column=0, padx=20, pady=0)
+        self.threshold_dropdown.grid(row=7, column=0, padx=20, pady=5)
         
         # Export button
         self.export_btn = ctk.CTkButton(
@@ -179,7 +183,7 @@ class ChurnAppV3(ctk.CTk):
         )
         self.export_btn.grid(row=9, column=0, padx=20, pady=10)
         
-        # Table View Size Control
+        # Table View Size Control (using dropdown instead of slider)
         self.view_size_label = ctk.CTkLabel(
             self.sidebar,
             text="📏 Table View Size:",
@@ -187,24 +191,16 @@ class ChurnAppV3(ctk.CTk):
         )
         self.view_size_label.grid(row=10, column=0, padx=20, pady=(15, 0))
         
-        self.view_size_var = ctk.IntVar(value=11)  # Default font size
-        self.view_size_slider = ctk.CTkSlider(
+        self.view_size_var = ctk.StringVar(value="Normal")
+        size_options = ["Tiny", "Small", "Normal", "Medium", "Large", "XL"]
+        self.view_size_dropdown = ctk.CTkOptionMenu(
             self.sidebar,
-            from_=9,
-            to=16,
-            number_of_steps=7,
             variable=self.view_size_var,
+            values=size_options,
             command=self._update_table_size,
             width=200
         )
-        self.view_size_slider.grid(row=11, column=0, padx=20, pady=5)
-        
-        self.view_size_display = ctk.CTkLabel(
-            self.sidebar,
-            text="Size: Normal",
-            font=ctk.CTkFont(size=12)
-        )
-        self.view_size_display.grid(row=12, column=0, padx=20, pady=0)
+        self.view_size_dropdown.grid(row=11, column=0, padx=20, pady=5)
         
         # Status
         self.status_label = ctk.CTkLabel(
@@ -226,23 +222,28 @@ class ChurnAppV3(ctk.CTk):
         self.tabview.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         
         # Create tabs
-        self.tab_dashboard = self.tabview.add("📊 Dashboard")
-        self.tab_analytics = self.tabview.add("🔬 Analytics")
-        self.tab_ml = self.tabview.add("🤖 ML Model")
-        self.tab_rfm = self.tabview.add("🎯 RFM")
-        self.tab_priority = self.tabview.add("🚨 Priority")
-        self.tab_forecast = self.tabview.add("📅 Forecast")
-        self.tab_geo = self.tabview.add("🌍 Geographic")
-        self.tab_recently_churned = self.tabview.add("⏰ Churned")
-        self.tab_drift = self.tabview.add("📈 Drift")
-        self.tab_survival = self.tabview.add("⏱️ Survival")
+        # Create tabs (Emojis removed to prevent segfault on Linux)
+        self.tab_dashboard = self.tabview.add("Dashboard")
+        self.tab_analytics = self.tabview.add("Analytics")
+        self.tab_ml = self.tabview.add("ML Model")
+        self.tab_rfm = self.tabview.add("RFM")
+        self.tab_priority = self.tabview.add("Priority")
+        self.tab_forecast = self.tabview.add("Forecast")
+        self.tab_geo = self.tabview.add("Geographic")
+        self.tab_recently_churned = self.tabview.add("Churned")
+        self.tab_drift = self.tabview.add("Drift")
+        self.tab_survival = self.tabview.add("Survival")
+        self.tab_settings = self.tabview.add("Settings")
         
         # Configure tabs
         for tab in [self.tab_dashboard, self.tab_analytics, self.tab_ml, self.tab_rfm, 
                     self.tab_priority, self.tab_forecast, self.tab_geo, 
-                    self.tab_recently_churned, self.tab_drift, self.tab_survival]:
+                    self.tab_recently_churned, self.tab_drift, self.tab_survival, self.tab_settings]:
             tab.grid_columnconfigure(0, weight=1)
             tab.grid_rowconfigure(0, weight=1)
+        
+        # Initialize settings tab
+        self._create_settings_tab()
         
         # Dashboard content (placeholder)
         self.dashboard_content = ctk.CTkLabel(
@@ -252,6 +253,234 @@ class ChurnAppV3(ctk.CTk):
         )
         self.dashboard_content.grid(row=0, column=0, pady=50)
         
+    def _create_settings_tab(self):
+        """Create the settings configuration tab."""
+        
+        # Scrollable frame for settings
+        scroll_frame = ctk.CTkScrollableFrame(self.tab_settings, height=800)
+        scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Title
+        ctk.CTkLabel(
+            scroll_frame,
+            text="Settings",
+            font=ctk.CTkFont(size=22, weight="bold")
+        ).pack(pady=(10, 20))
+        
+        # === SEASONALITY SECTION ===
+        season_frame = ctk.CTkFrame(scroll_frame)
+        season_frame.pack(fill="x", padx=10, pady=10)
+        
+        ctk.CTkLabel(
+            season_frame,
+            text="Seasonality Index",
+            font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(pady=10)
+        
+        ctk.CTkLabel(
+            season_frame,
+            text="Adjust monthly weights for 3-month forecast predictions.\nValues > 1.0 = high season (lower churn expected), < 1.0 = low season.",
+            font=ctk.CTkFont(size=11),
+            text_color="gray"
+        ).pack(pady=5)
+        
+        # Month entries in 3 rows of 4
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        
+        for row in range(3):
+            row_frame = ctk.CTkFrame(season_frame, fg_color="transparent")
+            row_frame.pack(pady=5)
+            
+            for col in range(4):
+                month_idx = row * 4 + col + 1  # 1-12
+                month_name = month_names[month_idx - 1]
+                
+                entry_frame = ctk.CTkFrame(row_frame, fg_color="transparent")
+                entry_frame.pack(side="left", padx=10)
+                
+                ctk.CTkLabel(
+                    entry_frame,
+                    text=month_name,
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                    width=40
+                ).pack(side="left")
+                
+                var = ctk.StringVar(value=str(self.default_seasonality[month_idx]))
+                self.seasonality_vars[month_idx] = var
+                
+                entry = ctk.CTkEntry(
+                    entry_frame,
+                    textvariable=var,
+                    width=60,
+                    justify="center"
+                )
+                entry.pack(side="left", padx=5)
+        
+        # Seasonality buttons
+        btn_frame = ctk.CTkFrame(season_frame, fg_color="transparent")
+        btn_frame.pack(pady=15)
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="Load from CSV",
+            command=self._load_seasonality_csv,
+            width=120,
+            fg_color="#3498db",
+            hover_color="#2980b9"
+        ).pack(side="left", padx=5)
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="Save to CSV",
+            command=self._save_seasonality_csv,
+            width=120,
+            fg_color="#27ae60",
+            hover_color="#1e8449"
+        ).pack(side="left", padx=5)
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="Reset Defaults",
+            command=self._reset_seasonality_defaults,
+            width=120,
+            fg_color="#95a5a6",
+            hover_color="#7f8c8d"
+        ).pack(side="left", padx=5)
+        
+        # === MODEL PARAMETERS SECTION ===
+        params_frame = ctk.CTkFrame(scroll_frame)
+        params_frame.pack(fill="x", padx=10, pady=20)
+        
+        ctk.CTkLabel(
+            params_frame,
+            text="Model Parameters",
+            font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(pady=10)
+        
+        # Drift threshold
+        drift_frame = ctk.CTkFrame(params_frame, fg_color="transparent")
+        drift_frame.pack(pady=10)
+        
+        ctk.CTkLabel(
+            drift_frame,
+            text="Drift Detection Z-Score Threshold:",
+            font=ctk.CTkFont(size=12)
+        ).pack(side="left", padx=10)
+        
+        self.drift_threshold_var = ctk.StringVar(value="1.0")
+        ctk.CTkEntry(
+            drift_frame,
+            textvariable=self.drift_threshold_var,
+            width=60,
+            justify="center"
+        ).pack(side="left", padx=5)
+        
+        ctk.CTkLabel(
+            drift_frame,
+            text="(1.0 = moderate, 2.0 = strict)",
+            font=ctk.CTkFont(size=10),
+            text_color="gray"
+        ).pack(side="left", padx=5)
+        
+        # === INFO SECTION ===
+        info_frame = ctk.CTkFrame(scroll_frame)
+        info_frame.pack(fill="x", padx=10, pady=20)
+        
+        ctk.CTkLabel(
+            info_frame,
+            text="Current Settings Info",
+            font=ctk.CTkFont(size=14, weight="bold")
+        ).pack(pady=10)
+        
+        info_text = f"""Churn Threshold: Customers inactive for {self.threshold_var.get()}+ days are considered churned.
+
+Seasonality Index:
+  - Values > 1.0 indicate high season (customers expected to be more active)
+  - Values < 1.0 indicate low season (lower activity expected)
+  - Default values are calibrated from historical transaction patterns.
+
+Drift Detection:
+  - Z-Score threshold determines sensitivity to purchase gap changes.
+  - Lower values = more sensitive (catches more drift, more false positives)
+  - Higher values = less sensitive (catches severe drift only)
+
+Note: RFM scores automatically rebalance with each analysis run.
+ML models retrain on each run using current data patterns."""
+        
+        ctk.CTkLabel(
+            info_frame,
+            text=info_text,
+            font=ctk.CTkFont(size=11),
+            justify="left",
+            anchor="w"
+        ).pack(pady=10, padx=20, fill="x")
+    
+    def _load_seasonality_csv(self):
+        """Load seasonality values from CSV file."""
+        file_path = filedialog.askopenfilename(
+            filetypes=[("CSV files", "*.csv")]
+        )
+        
+        if not file_path:
+            return
+            
+        try:
+            df = pd.read_csv(file_path)
+            for _, row in df.iterrows():
+                month = int(row['month'])
+                if month in self.seasonality_vars:
+                    self.seasonality_vars[month].set(str(row['seasonality_index']))
+            
+            self.status_label.configure(text="Seasonality loaded from CSV")
+            messagebox.showinfo("Success", "Seasonality values loaded successfully.")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load CSV: {e}")
+    
+    def _save_seasonality_csv(self):
+        """Save current seasonality values to CSV file."""
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv")],
+            initialfile="seasonality_index.csv"
+        )
+        
+        if not file_path:
+            return
+            
+        try:
+            data = []
+            for month in range(1, 13):
+                val = float(self.seasonality_vars[month].get())
+                data.append({'month': month, 'seasonality_index': val})
+            
+            df = pd.DataFrame(data)
+            df.to_csv(file_path, index=False)
+            
+            self.status_label.configure(text="Seasonality saved to CSV")
+            messagebox.showinfo("Success", f"Saved to {Path(file_path).name}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save: {e}")
+    
+    def _reset_seasonality_defaults(self):
+        """Reset seasonality to default values."""
+        for month, value in self.default_seasonality.items():
+            self.seasonality_vars[month].set(str(value))
+        
+        self.status_label.configure(text="Seasonality reset to defaults")
+    
+    def _get_current_seasonality(self) -> dict:
+        """Get current seasonality values from UI inputs."""
+        result = {}
+        for month in range(1, 13):
+            try:
+                result[month] = float(self.seasonality_vars[month].get())
+            except (ValueError, KeyError):
+                result[month] = self.default_seasonality.get(month, 1.0)
+        return result
+
     def _load_excel(self):
         """Load Excel file and populate sheet dropdown."""
         file_path = filedialog.askopenfilename(
@@ -279,22 +508,20 @@ class ChurnAppV3(ctk.CTk):
             messagebox.showerror("Error", f"Failed to load file: {e}")
     
     def _update_table_size(self, value=None):
-        """Update table font size and row height based on slider."""
-        size = int(self.view_size_var.get())
+        """Update table font size and row height based on dropdown selection."""
+        # Map size label to font size
+        size_map = {'Tiny': 9, 'Small': 10, 'Normal': 11, 'Medium': 12, 'Large': 13, 'XL': 14}
+        size_label = self.view_size_var.get()
+        size = size_map.get(size_label, 11)
         row_height = 20 + (size - 9) * 3  # Scale row height with font
-        
-        # Update display label
-        size_labels = {9: 'Tiny', 10: 'Small', 11: 'Normal', 12: 'Medium', 
-                       13: 'Large', 14: 'XL', 15: 'XXL', 16: 'Huge'}
-        self.view_size_display.configure(text=f"Size: {size_labels.get(size, 'Normal')}")
         
         # Update ttk style
         style = ttk.Style()
         style.configure("Treeview", 
-                        font=('Segoe UI', size),
+                        font=('DejaVu Sans', size),
                         rowheight=row_height)
         style.configure("Treeview.Heading", 
-                        font=('Segoe UI', size, 'bold'))
+                        font=('DejaVu Sans', size, 'bold'))
         
         # Store for new tables
         self.table_font_size = size
@@ -312,8 +539,27 @@ class ChurnAppV3(ctk.CTk):
                 sheet = self.sheet_var.get()
                 self.df = pd.read_excel(self.file_path, sheet_name=sheet)
                 
-                # Run multi-level analysis
-                threshold = self.threshold_var.get()
+                # Validation: Check for required columns
+                cols_lower = [c.lower() for c in self.df.columns]
+                
+                has_date = any(k in c for c in cols_lower for k in ['date', 'trxn', 'time'])
+                has_id = any(k in c for c in cols_lower for k in ['id', 'customer', 'membership', 'loyalty'])
+                
+                if not has_date or not has_id:
+                    missing = []
+                    if not has_date: missing.append("Date (marked with 'date', 'trxn')")
+                    if not has_id: missing.append("Customer ID (marked with 'id', 'membership', 'loyalty')")
+                    
+                    err_msg = f"Missing required columns:\n" + "\n".join(missing)
+                    err_msg += f"\n\nFound columns: {', '.join(self.df.columns)}"
+                    
+                    self.status_label.configure(text="Validation Error")
+                    messagebox.showerror("Data Validation Error", err_msg)
+                    self.analyze_btn.configure(state="normal")
+                    return
+
+                # Run multi-level analysis (get threshold from string var)
+                threshold = int(self.threshold_var.get())
                 system = MultiLevelChurnSystem(churn_threshold=threshold)
                 self.analysis_results = system.run(self.df)
                 
@@ -326,10 +572,12 @@ class ChurnAppV3(ctk.CTk):
                 # Get timeline summary
                 self.timeline_summary = system.rfm_analyzer.get_churn_timeline_summary()
                 
-                # Generate 3-month seasonal forecast
+                # Generate 3-month seasonal forecast using UI settings
                 seasonal_predictor = SeasonalChurnPredictor(
                     seasonality_file='seasonality_index.csv'
                 )
+                # Override with UI values
+                seasonal_predictor.seasonality = self._get_current_seasonality()
                 self.forecast_3month = seasonal_predictor.predict_3months(
                     self.analysis_results['rfm']
                 )
@@ -474,13 +722,13 @@ class ChurnAppV3(ctk.CTk):
         
         # Method cards data
         methods = [
-            ("📏 FLAT", f"{self.threshold_var.get()}d same for all", 
+            ("FLAT", f"{self.threshold_var.get()}d same for all", 
              summary.get('flat_churned', 0), summary.get('flat_rate', 0), "#3498db"),
-            ("🗺️ STATE", "Per-state thresholds", 
+            ("STATE", "Per-state thresholds", 
              summary.get('state_churned', 0), summary.get('state_rate', 0), "#9b59b6"),
-            ("🏪 RETAILER", "Per-retailer thresholds", 
+            ("RETAILER", "Per-retailer thresholds", 
              summary.get('retailer_churned', 0), summary.get('retailer_rate', 0), "#e67e22"),
-            ("🎯 COMBINED", "State + Retailer + Loyalty", 
+            ("COMBINED", "State + Retailer + Loyalty", 
              summary.get('combined_churned', 0), summary.get('combined_rate', 0), "#27ae60"),
         ]
         
@@ -506,7 +754,7 @@ class ChurnAppV3(ctk.CTk):
         combined_rate = summary.get('combined_rate', 0)
         diff = combined_rate - flat_rate
         
-        ctk.CTkLabel(diff_frame, text="📊 IMPACT OF MULTI-FACTOR ANALYSIS",
+        ctk.CTkLabel(diff_frame, text="IMPACT OF MULTI-FACTOR ANALYSIS",
                     font=ctk.CTkFont(size=14, weight="bold")).pack(pady=10)
         
         impact_text = f"Flat: {flat_rate:.1f}%  →  Combined: {combined_rate:.1f}%  ({diff:+.1f}%)"
@@ -517,7 +765,7 @@ class ChurnAppV3(ctk.CTk):
         
         # === STATE BREAKDOWN TABLE ===
         if state_patterns is not None and len(state_patterns) > 0:
-            ctk.CTkLabel(scroll_frame, text="📍 State Breakdown",
+            ctk.CTkLabel(scroll_frame, text="State Breakdown",
                         font=ctk.CTkFont(size=14, weight="bold")).pack(pady=(15, 5))
             
             tree_frame = ctk.CTkFrame(scroll_frame)
@@ -549,7 +797,7 @@ class ChurnAppV3(ctk.CTk):
         # === RETAILER BREAKDOWN TABLE ===
         retailer_patterns = self.multi_factor_results.get('retailer_patterns')
         if retailer_patterns is not None and len(retailer_patterns) > 0:
-            ctk.CTkLabel(scroll_frame, text="🏪 Top Retailers Breakdown",
+            ctk.CTkLabel(scroll_frame, text="Top Retailers Breakdown",
                         font=ctk.CTkFont(size=14, weight="bold")).pack(pady=(15, 5))
             
             tree_frame2 = ctk.CTkFrame(scroll_frame)
@@ -601,7 +849,7 @@ class ChurnAppV3(ctk.CTk):
         # Title
         ctk.CTkLabel(
             scroll_frame,
-            text="🤖 ML-Based Churn & Banking Prediction",
+            text="ML-Based Churn & Banking Prediction",
             font=ctk.CTkFont(size=22, weight="bold")
         ).pack(pady=10)
         
@@ -620,10 +868,10 @@ class ChurnAppV3(ctk.CTk):
         cards_frame.pack(fill="x", padx=10, pady=10)
         
         risk_data = [
-            ("🔴 HIGH RISK", summary.get('high_risk', 0), "#e74c3c", "Likely to churn"),
-            ("🟡 MEDIUM RISK", summary.get('medium_risk', 0), "#f39c12", "At risk"),
-            ("🟢 LOW RISK", summary.get('low_risk', 0), "#27ae60", "Safe"),
-            ("📊 TOTAL", summary.get('total', 0), "#3498db", "All customers"),
+            ("HIGH RISK", summary.get('high_risk', 0), "#e74c3c", "Likely to churn"),
+            ("MEDIUM RISK", summary.get('medium_risk', 0), "#f39c12", "At risk"),
+            ("LOW RISK", summary.get('low_risk', 0), "#27ae60", "Safe"),
+            ("TOTAL", summary.get('total', 0), "#3498db", "All customers"),
         ]
         
         for title, count, color, desc in risk_data:
@@ -643,7 +891,7 @@ class ChurnAppV3(ctk.CTk):
         forecast_frame = ctk.CTkFrame(scroll_frame)
         forecast_frame.pack(fill="x", padx=10, pady=10)
         
-        ctk.CTkLabel(forecast_frame, text="📅 3-MONTH FORECAST",
+        ctk.CTkLabel(forecast_frame, text="3-MONTH FORECAST",
                     font=ctk.CTkFont(size=14, weight="bold")).pack(pady=10)
         
         pred_points = summary.get('predicted_points_3mo', 0)
@@ -757,7 +1005,8 @@ class ChurnAppV3(ctk.CTk):
         # Populate with top 100
         for _, row in rfm_df.head(100).iterrows():
             values = [row.get(col, '') for col in columns]
-            tree.insert("", "end", values=values)
+            safe_values = [str(v) if pd.notnull(v) else '' for v in values]
+            tree.insert("", "end", values=safe_values)
             
     def _update_priority_tab(self):
         """Update the priority list tab."""
@@ -771,7 +1020,7 @@ class ChurnAppV3(ctk.CTk):
         # Title
         ctk.CTkLabel(
             self.tab_priority,
-            text="🚨 Priority Customers to Contact",
+            text="Priority Customers to Contact",
             font=ctk.CTkFont(size=18, weight="bold")
         ).pack(pady=10)
         
@@ -789,7 +1038,9 @@ class ChurnAppV3(ctk.CTk):
         tree_frame = ctk.CTkFrame(self.tab_priority)
         tree_frame.pack(fill="both", expand=True, padx=10, pady=10)
         
-        columns = list(self.priority_list.columns)
+        # Sanitize columns - ensure all are strings
+        columns = [str(col) for col in self.priority_list.columns if col is not None]
+        
         tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=20)
         
         for col in columns:
@@ -802,9 +1053,18 @@ class ChurnAppV3(ctk.CTk):
         tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        for _, row in at_risk_hv.head(100).iterrows():
+        # Convert df to use the same string columns to match
+        display_df = self.priority_list.copy()
+        display_df.columns = [str(c) for c in display_df.columns]
+        
+        # Filter on the COPY to ensure string columns
+        at_risk_hv_display = display_df[display_df['segment'] == 'AT_RISK_HIGH_VALUE']
+        
+        for _, row in at_risk_hv_display.head(100).iterrows():
             values = [row.get(col, '') for col in columns]
-            tree.insert("", "end", values=values)
+            # Use safe string conversion for values
+            safe_values = [str(v) if pd.notnull(v) else '' for v in values]
+            tree.insert("", "end", values=safe_values)
     
     def _update_forecast_tab(self):
         """Update the 3-month forecast tab."""
